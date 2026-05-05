@@ -2,9 +2,9 @@ package gpio
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -23,13 +23,6 @@ type (
 	// OutputPin is the interface satisfied by GPIO output pins.
 	OutputPin interface {
 		Write(bool) error
-	}
-
-	// Pin represents a GPIO pin.
-	Pin struct {
-		number int
-		dir    string
-		value  string
 	}
 )
 
@@ -71,10 +64,6 @@ func Output(pinNumber int, activeLow bool, initialValue bool) (OutputPin, error)
 	direction := gpioDirection[initialValue != activeLow]
 	err = writeFile(path.Join(pin.dir, "direction"), direction)
 	return pin, err
-}
-
-func (pin *Pin) Read() (bool, error) {
-	return readBoolFile(pin.value)
 }
 
 func fileExists(path string) (bool, error) {
@@ -122,35 +111,16 @@ func pinDirectory(pinNumber int) (string, error) {
 	}
 }
 
-func newPin(pinNumber int, activeLow bool) (*Pin, error) {
-	dir, err := pinDirectory(pinNumber)
-	if err != nil {
-		return nil, err
-	}
-	value := path.Join(dir, "value")
-	exists, err := fileExists(value)
-	if err != nil || !exists {
-		return nil, err
-	}
-	err = writeBoolFile(path.Join(dir, "active_low"), activeLow)
-	if err != nil {
-		return nil, err
-	}
-	return &Pin{number: pinNumber, dir: dir, value: value}, nil
-}
-
 func readFile(file string) (string, error) {
-	v, err := ioutil.ReadFile(file)
-	return string(v), err
+	v, err := os.ReadFile(file)
+	return strings.TrimSpace(string(v)), err
 }
 
 func readBoolFile(file string) (bool, error) {
-	v, err := readFile(file)
+	s, err := readFile(file)
 	if err != nil {
 		return false, err
 	}
-	// compare without trailing '\n'
-	s := v[:len(v)-1]
 	switch s {
 	case "0":
 		return false, nil
@@ -161,12 +131,8 @@ func readBoolFile(file string) (bool, error) {
 	}
 }
 
-func (pin *Pin) Write(value bool) error {
-	return writeBoolFile(pin.value, value)
-}
-
 func writeFile(file string, contents string) error {
-	return ioutil.WriteFile(file, []byte(contents), 0644)
+	return os.WriteFile(file, []byte(contents), 0644)
 }
 
 func writeBoolFile(file string, value bool) error {

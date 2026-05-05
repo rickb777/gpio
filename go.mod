@@ -1,5 +1,5 @@
-module github.com/ecc1/gpio
+module github.com/rickb777/gpio
 
-go 1.13
+go 1.25.0
 
-require golang.org/x/sys v0.5.0
+require golang.org/x/sys v0.43.0

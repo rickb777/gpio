@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/ecc1/gpio"
+	"github.com/rickb777/gpio"
 )
 
 func main() {
