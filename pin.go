@@ -2,17 +2,17 @@ package gpio
 
 import (
 	"fmt"
-	"path"
 	"time"
 
+	"github.com/rickb777/gpio/sysfs"
 	"golang.org/x/sys/unix"
 )
 
 // Pin represents a GPIO pin.
 type Pin struct {
 	number int
-	dir    string
-	value  string
+	dir    sysfs.Path
+	value  sysfs.Path
 }
 
 func newPin(pinNumber int, activeLow bool) (*Pin, error) {
@@ -20,46 +20,52 @@ func newPin(pinNumber int, activeLow bool) (*Pin, error) {
 	if err != nil {
 		return nil, err
 	}
-	value := path.Join(dir, "value")
-	exists, err := fileExists(value)
+
+	value := dir.Join("value")
+	exists, err := value.IsExistingFile()
 	if err != nil || !exists {
 		return nil, err
 	}
-	err = writeBoolFile(path.Join(dir, "active_low"), activeLow)
+
+	err = sysfs.SetBool(dir.Join("active_low"), activeLow)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Pin{number: pinNumber, dir: dir, value: value}, nil
 }
 
 func (pin *Pin) Read() (bool, error) {
-	return readBoolFile(pin.value)
+	return sysfs.GetBool(pin.value)
 }
 
 func (pin *Pin) Write(value bool) error {
-	return writeBoolFile(pin.value, value)
+	return sysfs.SetBool(pin.value, value)
 }
-
-// This must be long enough to read the entire value file (0 or 1 and newline).
-var valueBuf = make([]byte, 4)
 
 // Wait waits with the given timeout for a GPIO input pin to become active.
 func (pin *Pin) Wait(timeout time.Duration) error {
-	fd, err := unix.Open(pin.value, unix.O_NONBLOCK|unix.O_RDONLY, 0)
+	fd, err := unix.Open(string(pin.value), unix.O_NONBLOCK|unix.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = unix.Close(fd) }()
+
+	// This must be big enough to read the entire value file (0 or 1 and newline).
+	var valueBuf = make([]byte, 4)
 	_, err = unix.Read(fd, valueBuf)
 	// Return immediately if the value is already active.
 	if err != nil || valueBuf[0] == '1' {
 		return err
 	}
+
 	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLPRI}}
 	n, err := unix.Poll(fds, int(timeout/time.Millisecond))
 	if err != nil {
 		return err
 	}
+
 	switch n {
 	case 1:
 		return nil

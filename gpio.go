@@ -2,10 +2,9 @@ package gpio
 
 import (
 	"fmt"
-	"os"
-	"path"
-	"strings"
 	"time"
+
+	"github.com/rickb777/gpio/sysfs"
 )
 
 type (
@@ -32,7 +31,8 @@ func Input(pinNumber int, activeLow bool) (InputPin, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = writeFile(path.Join(pin.dir, "direction"), "in")
+
+	err = sysfs.SetString(pin.dir.Join("direction"), "in")
 	return pin, err
 }
 
@@ -43,11 +43,13 @@ func Interrupt(pinNumber int, activeLow bool, edge string) (InterruptPin, error)
 	if err != nil {
 		return nil, err
 	}
-	err = writeFile(path.Join(pin.dir, "direction"), "in")
+
+	err = sysfs.SetString(pin.dir.Join("direction"), "in")
 	if err != nil {
 		return pin, err
 	}
-	err = writeFile(path.Join(pin.dir, "edge"), edge)
+
+	err = sysfs.SetString(pin.dir.Join("edge"), edge)
 	return pin, err
 }
 
@@ -60,88 +62,33 @@ func Output(pinNumber int, activeLow bool, initialValue bool) (OutputPin, error)
 	if err != nil {
 		return nil, err
 	}
+
 	// Set direction based on initial *logical* value.
 	direction := gpioDirection[initialValue != activeLow]
-	err = writeFile(path.Join(pin.dir, "direction"), direction)
+	err = sysfs.SetString(pin.dir.Join("direction"), direction)
 	return pin, err
 }
 
-func fileExists(path string) (bool, error) {
-	return existsWithPredicate(path, func(info os.FileInfo) bool {
-		return info.Mode().IsRegular()
-	})
-}
-
-func directoryExists(path string) (bool, error) {
-	return existsWithPredicate(path, func(info os.FileInfo) bool {
-		return info.Mode().IsDir()
-	})
-}
-
-func existsWithPredicate(path string, predicate func(os.FileInfo) bool) (bool, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return predicate(info), nil
-}
-
-func pinDirectory(pinNumber int) (string, error) {
-	const gpioDir = "/sys/class/gpio/"
-	dir := path.Join(gpioDir, fmt.Sprintf("gpio%d/", pinNumber))
+func pinDirectory(pinNumber int) (sysfs.Path, error) {
+	const gpioDir sysfs.Path = "/sys/class/gpio"
+	dir := gpioDir.Join(fmt.Sprintf("gpio%d/", pinNumber))
 	tried := false
 	for {
-		exists, err := directoryExists(dir)
+		exists, err := dir.IsExistingDirectory()
 		if err != nil || exists {
 			return dir, err
 		}
 		if tried {
 			return dir, fmt.Errorf("failed to export GPIO directory %s", dir)
 		}
-		err = writeFile(path.Join(gpioDir, "export"), fmt.Sprintf("%d", pinNumber))
+
+		err = sysfs.SetString(gpioDir.Join("export"), fmt.Sprintf("%d", pinNumber))
 		if err != nil {
 			return dir, err
 		}
+
 		tried = true
 		// Give udev rules a chance to execute on newly-created gpio%d directory.
 		time.Sleep(time.Second)
 	}
-}
-
-func readFile(file string) (string, error) {
-	v, err := os.ReadFile(file)
-	return strings.TrimSpace(string(v)), err
-}
-
-func readBoolFile(file string) (bool, error) {
-	s, err := readFile(file)
-	if err != nil {
-		return false, err
-	}
-	switch s {
-	case "0":
-		return false, nil
-	case "1":
-		return true, nil
-	default:
-		return false, fmt.Errorf("read %s from %s instead of boolean value", s, file)
-	}
-}
-
-func writeFile(file string, contents string) error {
-	return os.WriteFile(file, []byte(contents), 0644)
-}
-
-func writeBoolFile(file string, value bool) error {
-	var b string
-	switch value {
-	case true:
-		b = "1"
-	case false:
-		b = "0"
-	}
-	return writeFile(file, b)
 }
